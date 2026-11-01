@@ -1,0 +1,1085 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>보이스 다이어리 - 구글 시트 자동 일기</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Google Fonts Inter & Noto Sans KR -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Pretendard', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'Roboto', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#f0fdf4',
+              100: '#dcfce7',
+              500: '#22c55e',
+              600: '#16a34a',
+              700: '#15803d',
+            }
+          },
+          animation: {
+            'pulse-fast': 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            'ripple': 'ripple 1.5s linear infinite',
+          },
+          keyframes: {
+            ripple: {
+              '0%': { transform: 'scale(0.95)', opacity: '0.8' },
+              '100%': { transform: 'scale(1.4)', opacity: '0' },
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* iOS Momentum Scrolling & Touch tweaks */
+    body {
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    input, textarea {
+      user-select: text;
+    }
+    .scrollbar-hide::-webkit-scrollbar {
+      display: none;
+    }
+    .scrollbar-hide {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col justify-between antialiased selection:bg-emerald-200">
+
+  <!-- Top App Bar -->
+  <header class="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200 px-4 py-3 flex items-center justify-between shadow-xs">
+    <div class="flex items-center space-x-2">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-sm">
+        <i class="fa-solid fa-microphone-lines text-lg"></i>
+      </div>
+      <div>
+        <h1 class="text-base font-bold tracking-tight text-slate-900 leading-tight">보이스 다이어리</h1>
+        <p class="text-[11px] text-slate-500 flex items-center gap-1">
+          <span id="sheetStatusBadge" class="inline-block w-2 h-2 rounded-full bg-amber-400"></span>
+          <span id="sheetStatusText">구글 시트 연동 대기중</span>
+        </p>
+      </div>
+    </div>
+    <div class="flex items-center gap-1.5">
+      <!-- Hourly Reminder Toggle Button -->
+      <button id="reminderBtn" onclick="toggleHourlyReminder()" title="매시간 알림" class="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-colors">
+        <i class="fa-regular fa-bell text-sm" id="bellIcon"></i>
+      </button>
+      <!-- Settings Modal Button -->
+      <button onclick="openSettingsModal()" title="설정" class="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-colors">
+        <i class="fa-solid fa-gear text-sm"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Content Area -->
+  <main class="flex-1 max-w-lg w-full mx-auto p-4 flex flex-col gap-4">
+    
+    <!-- Time & Hourly Notice Banner -->
+    <div class="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-2xl p-4 text-white shadow-md flex items-center justify-between">
+      <div>
+        <div class="text-xs font-medium text-emerald-100 uppercase tracking-wider" id="currentDateStr">2026년 11월 1일 일요일</div>
+        <div class="text-2xl font-bold tracking-tight" id="currentTimeStr">오전 07:38</div>
+      </div>
+      <div class="text-right">
+        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-white/20 backdrop-blur-xs text-white">
+          <i class="fa-solid fa-clock-rotate-left mr-1 text-[10px]"></i> 시간별 타임로그
+        </span>
+        <div class="text-[11px] text-emerald-100 mt-1" id="nextLogNotice">기록 준비 완료</div>
+      </div>
+    </div>
+
+    <!-- Live Recording Dashboard -->
+    <div class="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm flex flex-col items-center relative overflow-hidden">
+      <!-- Recording Status Text -->
+      <div class="flex items-center gap-2 mb-3">
+        <span id="micLiveDot" class="w-2.5 h-2.5 rounded-full bg-slate-300 transition-colors duration-300"></span>
+        <span id="recordingStatus" class="text-sm font-semibold text-slate-500">마이크를 눌러 말해보세요</span>
+      </div>
+
+      <!-- Main Mic Action Button with Wave Effect -->
+      <div class="relative my-2 flex items-center justify-center">
+        <div id="micRipple" class="absolute w-24 h-24 rounded-full bg-red-400 opacity-0 pointer-events-none transition-all"></div>
+        <button id="micBtn" onclick="toggleSpeechRecording()" class="relative z-10 w-20 h-20 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-500 text-white flex flex-col items-center justify-center shadow-lg active:scale-95 hover:shadow-emerald-500/30 transition-all duration-200">
+          <i id="micBtnIcon" class="fa-solid fa-microphone text-2xl mb-1"></i>
+          <span id="micBtnText" class="text-[10px] font-medium tracking-tight">터치 녹음</span>
+        </button>
+      </div>
+
+      <!-- Weather & Mood Quick Selectors -->
+      <div class="w-full mt-2 pt-2 border-t border-slate-100 flex flex-col gap-2">
+        <div class="flex items-center justify-between text-xs">
+          <span class="text-slate-500 font-medium flex items-center gap-1"><i class="fa-solid fa-cloud-sun text-amber-500"></i> 오늘 날씨</span>
+          <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-xl" id="weatherSelector">
+            <button type="button" onclick="selectWeather('☀️ 맑음')" class="weather-btn px-2 py-0.5 rounded-lg text-xs transition bg-white shadow-xs font-semibold text-slate-800" data-weather="☀️ 맑음">☀️</button>
+            <button type="button" onclick="selectWeather('⛅ 구름조금')" class="weather-btn px-2 py-0.5 rounded-lg text-xs transition text-slate-500 hover:text-slate-800" data-weather="⛅ 구름조금">⛅</button>
+            <button type="button" onclick="selectWeather('☁️ 흐림')" class="weather-btn px-2 py-0.5 rounded-lg text-xs transition text-slate-500 hover:text-slate-800" data-weather="☁️ 흐림">☁️</button>
+            <button type="button" onclick="selectWeather('🌧️ 비')" class="weather-btn px-2 py-0.5 rounded-lg text-xs transition text-slate-500 hover:text-slate-800" data-weather="🌧️ 비">🌧️</button>
+            <button type="button" onclick="selectWeather('❄️ 눈')" class="weather-btn px-2 py-0.5 rounded-lg text-xs transition text-slate-500 hover:text-slate-800" data-weather="❄️ 눈">❄️</button>
+          </div>
+        </div>
+        
+        <div class="flex items-center justify-between text-xs">
+          <span class="text-slate-500 font-medium flex items-center gap-1"><i class="fa-regular fa-face-smile text-emerald-500"></i> 지금 기분</span>
+          <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-xl overflow-x-auto scrollbar-hide" id="moodSelector">
+            <button type="button" onclick="selectMood('😊 좋음')" class="mood-btn px-2 py-0.5 rounded-lg text-xs transition bg-white shadow-xs font-semibold text-slate-800" data-mood="😊 좋음">😊</button>
+            <button type="button" onclick="selectMood('🥰 행복')" class="mood-btn px-2 py-0.5 rounded-lg text-xs transition text-slate-500 hover:text-slate-800" data-mood="🥰 행복">🥰</button>
+            <button type="button" onclick="selectMood('🌿 평온')" class="mood-btn px-2 py-0.5 rounded-lg text-xs transition text-slate-500 hover:text-slate-800" data-mood="🌿 평온">🌿</button>
+            <button type="button" onclick="selectMood('🔥 열정')" class="mood-btn px-2 py-0.5 rounded-lg text-xs transition text-slate-500 hover:text-slate-800" data-mood="🔥 열정">🔥</button>
+            <button type="button" onclick="selectMood('😴 피곤')" class="mood-btn px-2 py-0.5 rounded-lg text-xs transition text-slate-500 hover:text-slate-800" data-mood="😴 피곤">😴</button>
+            <button type="button" onclick="selectMood('🌧️ 우울')" class="mood-btn px-2 py-0.5 rounded-lg text-xs transition text-slate-500 hover:text-slate-800" data-mood="🌧️ 우울">🌧️</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live Transcript Box -->
+      <div class="w-full mt-3">
+        <div class="flex items-center justify-between text-xs text-slate-400 mb-1 px-1">
+          <span>인식된 음성 (실시간)</span>
+          <button onclick="clearTranscript()" class="text-slate-400 hover:text-red-500 text-[11px] transition">지우기</button>
+        </div>
+        <div id="speechTextContainer" class="w-full min-h-[72px] max-h-32 overflow-y-auto bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm text-slate-700 leading-relaxed break-words scrollbar-hide">
+          <span id="placeholderText" class="text-slate-400 italic">"지금 카페에서 기획 회의 중. 다음 주까지 와이어프레임 마무리하기로 결정함..." 처럼 자유롭게 말씀하세요.</span>
+        </div>
+      </div>
+
+      <!-- Process and Save Controls -->
+      <div class="w-full mt-3 grid grid-cols-2 gap-2">
+        <button id="aiProcessBtn" onclick="processWithAIAndSave()" disabled class="w-full py-2.5 px-3 rounded-xl bg-slate-900 text-white font-medium text-xs flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-800 transition active:scale-98 shadow-sm">
+          <i class="fa-solid fa-wand-magic-sparkles text-amber-300"></i>
+          <span>일기로 정리 & 시트 전송</span>
+        </button>
+        <button id="directSaveBtn" onclick="saveRawDirectly()" disabled class="w-full py-2.5 px-3 rounded-xl bg-slate-100 text-slate-700 font-medium text-xs flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-200 transition active:scale-98">
+          <i class="fa-solid fa-floppy-disk text-slate-500"></i>
+          <span>원문 그대로 바로 저장</span>
+        </button>
+      </div>
+
+      <!-- Progress / Loading Bar -->
+      <div id="processingLoader" class="hidden w-full mt-3 flex items-center justify-center gap-2 text-xs text-emerald-600 font-medium">
+        <i class="fa-solid fa-circle-notch fa-spin"></i>
+        <span id="loaderText">AI가 일기장 양식으로 정돈하고 구글 시트로 전송 중...</span>
+      </div>
+    </div>
+
+    <!-- Timeline / Diary History -->
+    <div class="flex-1 flex flex-col min-h-0">
+      <div class="flex items-center justify-between mb-2 px-1">
+        <h2 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+          <i class="fa-solid fa-book-bookmark text-emerald-600"></i>
+          <span>오늘의 일기장 타임라인</span>
+          <span id="entryCountBadge" class="bg-emerald-100 text-emerald-700 text-[10px] px-1.5 py-0.2 rounded-full font-bold">0</span>
+        </h2>
+        <div class="flex items-center gap-2">
+          <button onclick="exportToCSV()" title="CSV 내보내기" class="text-xs text-slate-500 hover:text-slate-800 font-medium flex items-center gap-1">
+            <i class="fa-solid fa-file-csv"></i> CSV
+          </button>
+          <button onclick="clearHistoryConfirm()" class="text-xs text-slate-400 hover:text-red-500">
+            비우기
+          </button>
+        </div>
+      </div>
+
+      <!-- History List -->
+      <div id="diaryList" class="flex flex-col gap-3 overflow-y-auto pb-10">
+        <!-- Rendered dynamically -->
+      </div>
+      
+      <!-- Empty state -->
+      <div id="emptyState" class="py-12 flex flex-col items-center justify-center text-center text-slate-400">
+        <div class="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-300 text-2xl mb-2">
+          <i class="fa-solid fa-pen-nib"></i>
+        </div>
+        <p class="text-sm font-medium text-slate-600">아직 오늘의 기록이 없습니다.</p>
+        <p class="text-xs text-slate-400 mt-0.5">상단 마이크를 눌러 생각이나 할 일을 말해보세요!</p>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Notification Banner / Toast Alert Component -->
+  <div id="customToast" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 transition-all duration-300 transform translate-y-20 opacity-0 pointer-events-none max-w-sm w-[90%] bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-3 text-xs">
+    <i id="toastIcon" class="fa-solid fa-circle-check text-emerald-400 text-base"></i>
+    <div class="flex-1" id="toastMessage">안내 메시지</div>
+  </div>
+
+  <!-- Settings & Google Sheet Setup Modal -->
+  <div id="settingsModal" class="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+          <i class="fa-solid fa-sliders text-emerald-600"></i>
+          <span>구글 시트 연동 및 설정</span>
+        </h3>
+        <button onclick="closeSettingsModal()" class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="mt-4 space-y-4 text-xs text-slate-600">
+        <!-- Google Apps Script Webhook URL -->
+        <div>
+          <label class="block font-semibold text-slate-800 mb-1">
+            Google Sheets 웹앱(Webhook) URL
+          </label>
+          <input type="url" id="sheetWebhookInput" placeholder="https://script.google.com/macros/s/.../exec" class="w-full p-3 rounded-xl border border-slate-200 text-slate-800 text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-hidden">
+          <p class="text-[11px] text-slate-400 mt-1">Google Sheets에 붙여넣을 스크립트 배포 URL입니다. 비워두면 브라우저 내부 다이어리에만 안전하게 보관됩니다.</p>
+        </div>
+
+        <!-- Gas Script Helper Accordion -->
+        <div class="border border-emerald-100 bg-emerald-50/50 rounded-2xl p-3.5">
+          <div class="flex items-center justify-between cursor-pointer" onclick="toggleGasGuide()">
+            <span class="font-bold text-emerald-800 flex items-center gap-1.5">
+              <i class="fa-solid fa-circle-question"></i> 구글 시트 1분 연동 코드 &amp; 연결 해결법
+            </span>
+            <i class="fa-solid fa-chevron-down text-emerald-700 text-xs transition-transform" id="gasChevron"></i>
+          </div>
+          <div id="gasGuideContent" class="hidden mt-2 pt-2 border-t border-emerald-100 text-[11px] text-slate-600 space-y-2">
+            <div class="bg-amber-50 border border-amber-200 text-amber-800 p-2.5 rounded-xl font-medium leading-relaxed">
+              ⚠️ <strong>연결 실패 시 필수 확인 3가지:</strong><br>
+              1. 배포 시 <strong>[액세스 권한]</strong>을 반드시 <strong>모든 사용자(Anyone)</strong>로 설정했나요? (로그인 필요 없음에 체크)<br>
+              2. URL 끝부분이 <code>/exec</code> 로 끝나는지 확인하세요. (<code>/edit</code>은 안 됩니다)<br>
+              3. 스크립트 코드를 수정했다면 반드시 <strong>[배포 관리 &gt; 연필(수정) &gt; 새 버전]</strong>으로 다시 배포해야 반영됩니다!
+            </div>
+            <p>1. <strong>구글 시트</strong> &gt; 상단 메뉴 <strong>확장 프로그램 &gt; Apps Script</strong>를 클릭합니다.</p>
+            <p>2. 기존 코드를 모두 지우고 아래 개선된 코드를 붙여넣은 뒤 저장(Ctrl+S)합니다:</p>
+            <div class="relative bg-slate-900 text-slate-200 p-2.5 rounded-lg font-mono text-[10px] overflow-x-auto">
+              <pre id="gasScriptCode">function doPost(e) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getActiveSheet();
+    
+    // 시트가 비어있으면 헤더 자동 생성 [시간, 날씨, 일기 내용]
+    if (sheet.getLastRow() === 0) {
+      sheet.appendRow(["시간", "날씨", "일기 내용"]);
+      sheet.getRange(1, 1, 1, 3).setBackground("#dcfce7").setFontWeight("bold");
+    }
+    
+    // JSON 데이터 파싱 (POST 본문 처리)
+    var raw = e.postData.contents;
+    var data = JSON.parse(raw);
+    
+    sheet.appendRow([
+      data.time || new Date().toLocaleString(),
+      data.weather || "",
+      data.diary || ""
+    ]);
+    
+    return ContentService.createTextOutput(JSON.stringify({status: "success"}))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch(err) {
+    return ContentService.createTextOutput(JSON.stringify({status: "error", message: err.toString()}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function doGet(e) {
+  return ContentService.createTextOutput("✅ 보이스 다이어리 웹앱이 정상 작동 중입니다! (URL 정상)");
+}</pre>
+              <button onclick="copyGasScript()" class="absolute top-2 right-2 px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[9px] font-sans">코드 복사</button>
+            </div>
+            <p>3. 상단 <strong>배포 &gt; 새 배포</strong> (유형: 웹 앱)<br>
+               - <strong>다음 사용자 권한으로 실행</strong>: 나(내 계정)<br>
+               - <strong>액세스 권한이 있는 사용자</strong>: <span class="text-rose-600 font-bold underline">모든 사용자(Anyone)</span><br>
+               - 배포 후 생성된 <strong>웹 앱 URL (끝이 /exec)</strong>을 복사하여 위 칸에 넣으세요.
+            </p>
+          </div>
+        </div>
+
+        <!-- Custom AI Persona Instructions -->
+        <div>
+          <label class="block font-semibold text-slate-800 mb-1">
+            일기 스타일 / AI 변환 프롬프트 설정
+          </label>
+          <textarea id="aiPromptStyle" rows="3" class="w-full p-2.5 rounded-xl border border-slate-200 text-slate-800 text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-hidden" placeholder="예: '따뜻하고 정돈된 1인칭 회고록 스타일로 다듬어줘. 감정 이모티콘을 제목 앞에 덧붙여줘.'"></textarea>
+        </div>
+
+        <!-- Hourly Chime Setting -->
+        <div class="flex items-center justify-between py-2 border-t border-slate-100">
+          <div>
+            <div class="font-semibold text-slate-800">매 시간 정각 기록 알림</div>
+            <div class="text-[11px] text-slate-400">정각마다 사운드 및 브라우저 알림으로 기록을 유도합니다.</div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="hourlySwitch" onchange="syncHourlySwitch()" class="sr-only peer">
+            <div class="w-11 h-6 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+          </label>
+        </div>
+      </div>
+
+      <div class="mt-6 flex gap-2">
+        <button onclick="saveSettings()" class="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-semibold text-xs hover:bg-emerald-700 transition">
+          설정 저장하기
+        </button>
+        <button onclick="testSheetConnection()" class="px-4 py-3 rounded-xl bg-slate-100 text-slate-700 font-medium text-xs hover:bg-slate-200 transition">
+          시트 전송 테스트
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sound Audio Tone Context (Tone.js library) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js"></script>
+
+  <!-- Application Logic -->
+  <script>
+    // --- Application State ---
+    let isRecording = false;
+    let recognition = null;
+    let finalTranscript = "";
+    let interimTranscript = "";
+    let entries = [];
+    let hourlyReminderActive = false;
+    let reminderTimer = null;
+    let selectedWeather = "☀️ 맑음";
+    let selectedMood = "😊 좋음";
+
+    // Config defaults
+    let config = {
+      sheetUrl: "",
+      aiStyle: "자연스럽고 문맥이 살아있는 따뜻한 1인칭 일기체로 정리해줘.",
+      hourlyReminder: false
+    };
+
+    // Load saved data on startup
+    window.onload = function() {
+      loadSettings();
+      initSpeechRecognition();
+      loadEntries();
+      startClock();
+      updateStatusBadge();
+    };
+
+    // --- Clock & Next Hour Display ---
+    function startClock() {
+      function update() {
+        const now = new Date();
+        const dateOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
+        document.getElementById('currentDateStr').innerText = now.toLocaleDateString('ko-KR', dateOptions);
+        
+        let hours = now.getHours();
+        const minutes = String(now.getMinutes()).padStart(2, '0');
+        const period = hours >= 12 ? '오후' : '오전';
+        const displayHours = String(hours % 12 || 12).padStart(2, '0');
+        document.getElementById('currentTimeStr').innerText = `${period} ${displayHours}:${minutes}`;
+
+        // Next hourly log reminder
+        const minutesLeft = 60 - now.getMinutes();
+        const nextHour = (now.getHours() + 1) % 24;
+        document.getElementById('nextLogNotice').innerText = `다음 정각(${nextHour}시)까지 ${minutesLeft}분 남음`;
+
+        // Check exact hour chime if reminder active
+        if (config.hourlyReminder && now.getMinutes() === 0 && now.getSeconds() === 0) {
+          triggerHourlyAlert();
+        }
+      }
+      update();
+      setInterval(update, 1000);
+    }
+
+    // --- High-Performance Smooth Speech Recognition Engine ---
+    let isIntentionalStop = false;
+
+    function initSpeechRecognition() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        showToast("⚠️ 이 브라우저는 음성 인식을 지원하지 않습니다. Chrome 또는 Safari 최신 버전을 권장합니다.");
+        document.getElementById('recordingStatus').innerText = "음성 인식을 지원하지 않는 브라우저입니다.";
+        return;
+      }
+
+      recognition = new SpeechRecognition();
+      // continuous를 true로 유지하되, 각 이벤트 결과 배열을 클린 조립하여
+      // 모바일에서도 끊김 없이 PC처럼 즉각적이고 매끄럽게 인식되도록 최적화
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'ko-KR';
+
+      recognition.onstart = function() {
+        isRecording = true;
+        updateMicUI(true);
+      };
+
+      recognition.onresult = function(event) {
+        let assembledFinal = "";
+        let assembledInterim = "";
+
+        // 전체 results 버퍼를 매 프레임 순회하여 중복 없이 실시간 반영
+        for (let i = 0; i < event.results.length; ++i) {
+          const item = event.results[i];
+          const text = item[0].transcript;
+          if (item.isFinal) {
+            assembledFinal += text + " ";
+          } else {
+            assembledInterim += text;
+          }
+        }
+
+        finalTranscript = assembledFinal.trim();
+        interimTranscript = assembledInterim;
+        renderTranscript();
+      };
+
+      recognition.onerror = function(event) {
+        if (event.error === 'not-allowed') {
+          showToast("마이크 접근 권한이 거부되었습니다. 브라우저 설정에서 허용해 주세요.");
+          stopRecording();
+        } else if (event.error === 'no-speech') {
+          // 일상적 무음 상태 - 계속 유지
+        } else {
+          console.warn("STT Notice:", event.error);
+        }
+      };
+
+      recognition.onend = function() {
+        // 사용자가 명시적으로 중지하지 않았는데 모바일 브라우저에 의해 끊긴 경우 즉시 무지연 재연결
+        if (isRecording && !isIntentionalStop) {
+          try {
+            recognition.start();
+          } catch (e) {
+            setTimeout(() => {
+              if (isRecording && !isIntentionalStop) {
+                try { recognition.start(); } catch(err) {}
+              }
+            }, 100);
+          }
+        } else {
+          isRecording = false;
+          updateMicUI(false);
+        }
+      };
+    }
+
+    function toggleSpeechRecording() {
+      if (!recognition) {
+        initSpeechRecognition();
+        if (!recognition) return;
+      }
+
+      if (!isRecording) {
+        try {
+          if (Tone.context.state !== 'running') {
+            Tone.start();
+          }
+          isIntentionalStop = false;
+          finalTranscript = "";
+          interimTranscript = "";
+          renderTranscript();
+          recognition.start();
+          playBeep(440, "8n");
+        } catch (err) {
+          console.error(err);
+        }
+      } else {
+        stopRecording();
+        playBeep(330, "8n");
+      }
+    }
+
+    function stopRecording() {
+      isIntentionalStop = true;
+      isRecording = false;
+      if (recognition) {
+        try { recognition.stop(); } catch(e) {}
+      }
+      if (interimTranscript.trim()) {
+        finalTranscript = (finalTranscript + " " + interimTranscript.trim()).trim();
+        interimTranscript = "";
+      }
+      renderTranscript();
+      updateMicUI(false);
+    }
+
+    function updateMicUI(recording) {
+      const micBtn = document.getElementById('micBtn');
+      const micRipple = document.getElementById('micRipple');
+      const micLiveDot = document.getElementById('micLiveDot');
+      const recordingStatus = document.getElementById('recordingStatus');
+      const micBtnIcon = document.getElementById('micBtnIcon');
+      const micBtnText = document.getElementById('micBtnText');
+
+      if (recording) {
+        micBtn.classList.remove('from-emerald-500', 'to-teal-500');
+        micBtn.classList.add('from-red-500', 'to-rose-600');
+        micRipple.classList.add('animate-ripple', 'opacity-70');
+        micLiveDot.classList.remove('bg-slate-300');
+        micLiveDot.classList.add('bg-red-500', 'animate-pulse');
+        recordingStatus.innerText = "음성을 듣고 있습니다... (터치 시 종료)";
+        recordingStatus.classList.remove('text-slate-500');
+        recordingStatus.classList.add('text-red-500');
+        micBtnIcon.className = "fa-solid fa-stop text-2xl mb-1";
+        micBtnText.innerText = "녹음 종료";
+      } else {
+        micBtn.classList.remove('from-red-500', 'to-rose-600');
+        micBtn.classList.add('from-emerald-500', 'to-teal-500');
+        micRipple.classList.remove('animate-ripple', 'opacity-70');
+        micLiveDot.classList.remove('bg-red-500', 'animate-pulse');
+        micLiveDot.classList.add('bg-slate-300');
+        recordingStatus.innerText = "마이크를 눌러 말해보세요";
+        recordingStatus.classList.remove('text-red-500');
+        recordingStatus.classList.add('text-slate-500');
+        micBtnIcon.className = "fa-solid fa-microphone text-2xl mb-1";
+        micBtnText.innerText = "터치 녹음";
+      }
+    }
+
+    function renderTranscript() {
+      const container = document.getElementById('speechTextContainer');
+      const fullText = (finalTranscript + " " + interimTranscript).trim();
+
+      const aiBtn = document.getElementById('aiProcessBtn');
+      const directBtn = document.getElementById('directSaveBtn');
+
+      if (fullText.length > 0) {
+        const trailingSpace = finalTranscript && interimTranscript ? " " : "";
+        container.innerHTML = `<span class="text-slate-800">${escapeHtml(finalTranscript)}</span>${trailingSpace}<span class="text-emerald-600 font-medium">${escapeHtml(interimTranscript)}</span>`;
+        aiBtn.disabled = false;
+        directBtn.disabled = false;
+      } else {
+        container.innerHTML = `<span id="placeholderText" class="text-slate-400 italic">"지금 카페에서 기획 회의 중. 다음 주까지 와이어프레임 마무리하기로 결정함..." 처럼 자유롭게 말씀하세요.</span>`;
+        aiBtn.disabled = true;
+        directBtn.disabled = true;
+      }
+    }
+
+    function clearTranscript() {
+      if (isRecording) stopRecording();
+      finalTranscript = "";
+      interimTranscript = "";
+      renderTranscript();
+    }
+
+    // --- Weather & Mood Selectors ---
+    function selectWeather(weather) {
+      selectedWeather = weather;
+      document.querySelectorAll('.weather-btn').forEach(btn => {
+        if (btn.dataset.weather === weather) {
+          btn.className = "weather-btn px-2 py-0.5 rounded-lg text-xs transition bg-white shadow-xs font-semibold text-slate-800";
+        } else {
+          btn.className = "weather-btn px-2 py-0.5 rounded-lg text-xs transition text-slate-500 hover:text-slate-800";
+        }
+      });
+    }
+
+    function selectMood(mood) {
+      selectedMood = mood;
+      document.querySelectorAll('.mood-btn').forEach(btn => {
+        if (btn.dataset.mood === mood) {
+          btn.className = "mood-btn px-2 py-0.5 rounded-lg text-xs transition bg-white shadow-xs font-semibold text-slate-800";
+        } else {
+          btn.className = "mood-btn px-2 py-0.5 rounded-lg text-xs transition text-slate-500 hover:text-slate-800";
+        }
+      });
+    }
+
+    // --- Gemini AI Formatting Engine (Diary only) ---
+    async function processWithAIAndSave() {
+      const textToProcess = (finalTranscript + " " + interimTranscript).trim();
+      if (!textToProcess) {
+        showToast("녹음된 내용이 없습니다.");
+        return;
+      }
+
+      if (isRecording) stopRecording();
+
+      setProcessing(true, "AI가 일기장 문장으로 정돈 중...");
+
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const dateStr = now.toISOString().split('T')[0];
+
+      const systemInstruction = `당신은 사용자의 실시간 음성 메모를 가공하여 간결하고 자연스러운 다이어리 문장으로 정리하는 에디터입니다.
+현재 날씨: "${selectedWeather}"
+현재 기분: "${selectedMood}"
+사용자 요청 스타일: "${config.aiStyle}"
+
+반드시 다음 JSON 규격으로만 응답해야 합니다.
+{
+  "diary": "음성 내용을 자연스럽고 문맥이 매끄러운 1인칭 일기체 본문으로 정돈한 글 (2~4문장)"
+}`;
+
+      const userPrompt = `[기록 시각: ${dateStr} ${timeStr}]\n음성 내용:\n"${textToProcess}"`;
+
+      try {
+        const apiKey = "";
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+        const payload = {
+          contents: [{ parts: [{ text: userPrompt }] }],
+          systemInstruction: { parts: [{ text: systemInstruction }] },
+          generationConfig: {
+            responseMimeType: "application/json",
+            temperature: 0.7
+          }
+        };
+
+        const response = await fetchWithRetry(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+        const jsonText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        let refinedDiary = textToProcess;
+
+        if (jsonText) {
+          try {
+            const parsed = JSON.parse(jsonText);
+            if (parsed.diary) refinedDiary = parsed.diary;
+          } catch(e) {
+            console.warn("JSON parse fallback", e);
+          }
+        }
+
+        const newEntry = {
+          id: Date.now().toString(),
+          date: dateStr,
+          time: timeStr,
+          weather: selectedWeather,
+          diary: refinedDiary,
+          syncedToSheets: false
+        };
+
+        await finalizeAndStoreEntry(newEntry);
+
+      } catch (error) {
+        console.error("AI Generation Error:", error);
+        showToast("AI 변환 지연으로 바로 저장합니다.");
+        saveRawDirectly();
+      } finally {
+        setProcessing(false);
+      }
+    }
+
+    async function saveRawDirectly() {
+      const textToProcess = (finalTranscript + " " + interimTranscript).trim();
+      if (!textToProcess) return;
+
+      if (isRecording) stopRecording();
+
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const dateStr = now.toISOString().split('T')[0];
+
+      const newEntry = {
+        id: Date.now().toString(),
+        date: dateStr,
+        time: timeStr,
+        weather: selectedWeather,
+        diary: textToProcess,
+        syncedToSheets: false
+      };
+
+      setProcessing(true, "구글 시트에 저장 중...");
+      await finalizeAndStoreEntry(newEntry);
+      setProcessing(false);
+    }
+
+    async function finalizeAndStoreEntry(entry) {
+      // 1. Sync to Google Sheets if configured
+      if (config.sheetUrl && config.sheetUrl.startsWith("http")) {
+        setProcessing(true, "구글 시트로 실시간 전송 중...");
+        const syncSuccess = await sendToGoogleSheets(entry);
+        entry.syncedToSheets = syncSuccess;
+      } else {
+        entry.syncedToSheets = false;
+      }
+
+      // 2. Add to list & render
+      entries.unshift(entry);
+      saveEntries();
+      renderDiaryTimeline();
+
+      // 3. Clear recording
+      clearTranscript();
+      playBeep(523.25, "4n");
+
+      if (entry.syncedToSheets) {
+        showToast("✨ [시간, 날씨, 일기 내용] 구글 시트 저장 완료!");
+      } else if (config.sheetUrl) {
+        showToast("⚠️ 일기는 저장되었으나 구글 시트 전송에 실패했습니다 (URL 확인 필요).");
+      } else {
+        showToast("📖 일기가 타임라인에 안전하게 저장되었습니다.");
+      }
+    }
+
+    // --- Google Sheets Webhook Dispatcher (시간, 날씨, 일기 내용만 전송) ---
+    async function sendToGoogleSheets(entry) {
+      if (!config.sheetUrl) return false;
+      try {
+        const payload = {
+          time: `${entry.date} ${entry.time}`,
+          weather: entry.weather || selectedWeather,
+          diary: entry.diary
+        };
+
+        await fetch(config.sheetUrl, {
+          method: "POST",
+          mode: "no-cors",
+          cache: "no-cache",
+          headers: {
+            "Content-Type": "text/plain;charset=utf-8"
+          },
+          body: JSON.stringify(payload)
+        });
+        return true;
+      } catch (err) {
+        console.error("Sheets Sync Error:", err);
+        return false;
+      }
+    }
+
+    // --- Timeline Rendering [시간, 날씨, 일기 내용] ---
+    function renderDiaryTimeline() {
+      const container = document.getElementById('diaryList');
+      const emptyState = document.getElementById('emptyState');
+      const badge = document.getElementById('entryCountBadge');
+
+      badge.innerText = entries.length;
+
+      if (entries.length === 0) {
+        container.innerHTML = "";
+        emptyState.classList.remove('hidden');
+        return;
+      }
+
+      emptyState.classList.add('hidden');
+      container.innerHTML = entries.map(item => {
+        const sheetBadge = item.syncedToSheets
+          ? `<span class="inline-flex items-center text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md font-medium border border-emerald-200"><i class="fa-solid fa-cloud-check mr-1"></i> 시트 연동됨</span>`
+          : `<span class="inline-flex items-center text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md"><i class="fa-solid fa-bookmark mr-1"></i> 로컬 저장</span>`;
+
+        return `
+          <div class="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-2xs hover:shadow-xs transition">
+            <!-- 1. 시간 & 날씨 & 액션 바 -->
+            <div class="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="text-xs font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded-md font-mono flex items-center gap-1">
+                  <i class="fa-regular fa-clock text-[10px] text-slate-400"></i> ${escapeHtml(item.time)}
+                </span>
+                <span class="text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200/70 px-2 py-0.5 rounded-md">
+                  ${escapeHtml(item.weather || "☀️ 맑음")}
+                </span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                ${sheetBadge}
+                <button onclick="deleteEntry('${item.id}')" class="text-slate-300 hover:text-red-500 w-6 h-6 rounded flex items-center justify-center transition">
+                  <i class="fa-regular fa-trash-can text-xs"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- 2. 일기 내용 -->
+            <div class="mt-2.5 text-xs text-slate-800 leading-relaxed break-words whitespace-pre-line bg-slate-50/70 p-3 rounded-xl border border-slate-100">
+              ${escapeHtml(item.diary)}
+            </div>
+
+            <!-- 하단 복사 툴바 -->
+            <div class="mt-2 pt-1 flex items-center justify-end text-[11px] text-slate-400">
+              <button onclick="copyToClipboard('${escapeHtml(item.diary).replace(/'/g, "\\'")}')" class="hover:text-slate-700 flex items-center gap-1 transition">
+                <i class="fa-regular fa-copy"></i> 일기 복사
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function deleteEntry(id) {
+      entries = entries.filter(e => e.id !== id);
+      saveEntries();
+      renderDiaryTimeline();
+      showToast("기록이 삭제되었습니다.");
+    }
+
+    function clearHistoryConfirm() {
+      if (entries.length === 0) return;
+      if (window.confirm("오늘의 모든 기록을 화면에서 지우시겠습니까?")) {
+        entries = [];
+        saveEntries();
+        renderDiaryTimeline();
+        showToast("모든 기록이 초기화되었습니다.");
+      }
+    }
+
+    // --- CSV Export (시간, 날씨, 일기 내용) ---
+    function exportToCSV() {
+      if (entries.length === 0) {
+        showToast("내보낼 일기 기록이 없습니다.");
+        return;
+      }
+
+      let csv = "\uFEFF시간,날씨,일기 내용\n";
+      entries.forEach(e => {
+        const cleanTime = `"${e.date} ${e.time}"`;
+        const cleanWeather = `"${(e.weather || '').replace(/"/g, '""')}"`;
+        const cleanDiary = `"${e.diary.replace(/"/g, '""')}"`;
+        csv += `${cleanTime},${cleanWeather},${cleanDiary}\n`;
+      });
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `voice_diary_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      showToast("CSV 파일이 다운로드되었습니다.");
+    }
+
+    // --- Hourly Reminder System ---
+    function toggleHourlyReminder() {
+      config.hourlyReminder = !config.hourlyReminder;
+      syncHourlyState();
+      saveSettings(true);
+      if (config.hourlyReminder) {
+        requestNotificationPermission();
+        playBeep(659.25, "8n");
+        showToast("🔔 매시간 정각 기록 알림이 켜졌습니다.");
+      } else {
+        showToast("🔕 정각 알림이 꺼졌습니다.");
+      }
+    }
+
+    function syncHourlySwitch() {
+      config.hourlyReminder = document.getElementById('hourlySwitch').checked;
+      syncHourlyState();
+      saveSettings(true);
+    }
+
+    function syncHourlyState() {
+      const bell = document.getElementById('bellIcon');
+      const reminderBtn = document.getElementById('reminderBtn');
+      const sw = document.getElementById('hourlySwitch');
+
+      sw.checked = config.hourlyReminder;
+      if (config.hourlyReminder) {
+        bell.className = "fa-solid fa-bell text-emerald-600";
+        reminderBtn.classList.add('bg-emerald-50', 'border', 'border-emerald-200');
+      } else {
+        bell.className = "fa-regular fa-bell text-slate-600";
+        reminderBtn.classList.remove('bg-emerald-50', 'border', 'border-emerald-200');
+      }
+    }
+
+    function requestNotificationPermission() {
+      if ("Notification" in window && Notification.permission !== "granted") {
+        Notification.requestPermission();
+      }
+    }
+
+    function triggerHourlyAlert() {
+      playBeep(587.33, "4n");
+      showToast("⏰ 정각입니다! 지난 1시간 동안 있었던 중요한 일이나 생각을 음성으로 남겨보세요.");
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("보이스 다이어리 ⏰", {
+          body: "정각입니다! 지금의 생각이나 진행 상황을 말로 기록해보세요.",
+          icon: "https://placehold.co/128x128/10b981/ffffff?text=Diary"
+        });
+      }
+    }
+
+    // --- Audio Feedback (Tone.js synthesizer) ---
+    function playBeep(freq = 440, duration = "8n") {
+      try {
+        const synth = new Tone.Synth({
+          oscillator: { type: "sine" },
+          envelope: { attack: 0.01, decay: 0.1, sustain: 0.1, release: 0.2 }
+        }).toDestination();
+        synth.triggerAttackRelease(freq, duration);
+      } catch (e) {
+        // AudioContext not yet unlocked
+      }
+    }
+
+    // --- Settings Storage & UI ---
+    function loadSettings() {
+      try {
+        const stored = window.__cachedConfig;
+        if (stored) config = Object.assign(config, stored);
+      } catch(e) {}
+
+      document.getElementById('sheetWebhookInput').value = config.sheetUrl || "";
+      document.getElementById('aiPromptStyle').value = config.aiStyle || "";
+      syncHourlyState();
+      updateStatusBadge();
+    }
+
+    function saveSettings(silent = false) {
+      config.sheetUrl = document.getElementById('sheetWebhookInput').value.trim();
+      config.aiStyle = document.getElementById('aiPromptStyle').value.trim();
+      config.hourlyReminder = document.getElementById('hourlySwitch').checked;
+      window.__cachedConfig = config;
+
+      updateStatusBadge();
+      if (!silent) {
+        closeSettingsModal();
+        showToast("설정이 저장되었습니다.");
+      }
+    }
+
+    function updateStatusBadge() {
+      const badge = document.getElementById('sheetStatusBadge');
+      const text = document.getElementById('sheetStatusText');
+      if (config.sheetUrl && config.sheetUrl.startsWith("http")) {
+        badge.className = "inline-block w-2 h-2 rounded-full bg-emerald-500";
+        text.innerText = "구글 시트 연동 준비 완료";
+      } else {
+        badge.className = "inline-block w-2 h-2 rounded-full bg-amber-400";
+        text.innerText = "구글 시트 미설정 (로컬 저장 중)";
+      }
+    }
+
+    async function testSheetConnection() {
+      const url = document.getElementById('sheetWebhookInput').value.trim();
+      if (!url) {
+        showToast("먼저 구글 시트 Webhook URL을 입력해주세요.");
+        return;
+      }
+
+      if (!url.startsWith("https://script.google.com/macros/s/")) {
+        showToast("⚠️ URL 형식을 확인하세요. 'https://script.google.com/macros/s/.../exec' 형태여야 합니다.");
+        return;
+      }
+
+      if (url.includes("/edit")) {
+        showToast("⚠️ 스크립트 편집기 URL(/edit)이 입력되었습니다. '배포' 후 발급받은 /exec URL을 넣어주세요.");
+        return;
+      }
+
+      showToast("구글 시트로 테스트 데이터 전송 중...");
+      try {
+        await fetch(url, {
+          method: "POST",
+          mode: "no-cors",
+          cache: "no-cache",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({
+            time: new Date().toLocaleString('ko-KR'),
+            weather: selectedWeather,
+            diary: "축하합니다! [시간, 날씨, 일기 내용] 규격으로 정상 연결되었습니다."
+          })
+        });
+
+        showToast("✅ 전송 신호를 보냈습니다! 구글 시트를 열어 새 행이 추가되었는지 확인하세요.");
+      } catch (err) {
+        console.error("Test fail:", err);
+        showToast("❌ 전송 실패: 인터넷 연결 및 Apps Script 배포 상태를 확인해주세요.");
+      }
+    }
+
+    function openSettingsModal() {
+      document.getElementById('settingsModal').classList.remove('hidden');
+    }
+
+    function closeSettingsModal() {
+      document.getElementById('settingsModal').classList.add('hidden');
+    }
+
+    function toggleGasGuide() {
+      const content = document.getElementById('gasGuideContent');
+      const chevron = document.getElementById('gasChevron');
+      content.classList.toggle('hidden');
+      chevron.classList.toggle('rotate-180');
+    }
+
+    function copyGasScript() {
+      const code = document.getElementById('gasScriptCode').innerText;
+      copyToClipboard(code);
+      showToast("📋 Apps Script 코드가 복사되었습니다!");
+    }
+
+    // --- Helper Utilities ---
+    function copyToClipboard(text) {
+      const dummy = document.createElement("textarea");
+      document.body.appendChild(dummy);
+      dummy.value = text;
+      dummy.select();
+      document.execCommand('copy');
+      document.body.removeChild(dummy);
+      showToast("클립보드에 복사되었습니다.");
+    }
+
+    function setProcessing(show, msg = "") {
+      const loader = document.getElementById('processingLoader');
+      const loaderText = document.getElementById('loaderText');
+      const aiBtn = document.getElementById('aiProcessBtn');
+      const directBtn = document.getElementById('directSaveBtn');
+
+      if (show) {
+        loader.classList.remove('hidden');
+        loaderText.innerText = msg;
+        aiBtn.disabled = true;
+        directBtn.disabled = true;
+      } else {
+        loader.classList.add('hidden');
+        renderTranscript();
+      }
+    }
+
+    function showToast(message) {
+      const toast = document.getElementById('customToast');
+      const msgElem = document.getElementById('toastMessage');
+      msgElem.innerText = message;
+      toast.classList.remove('translate-y-20', 'opacity-0', 'pointer-events-none');
+      setTimeout(() => {
+        toast.classList.add('translate-y-20', 'opacity-0', 'pointer-events-none');
+      }, 3500);
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function loadEntries() {
+      if (window.__cachedEntries) {
+        entries = window.__cachedEntries;
+      }
+      renderDiaryTimeline();
+    }
+
+    function saveEntries() {
+      window.__cachedEntries = entries;
+    }
+
+    // Exponential backoff fetch wrapper
+    async function fetchWithRetry(url, options, retries = 3, delay = 1000) {
+      try {
+        const res = await fetch(url, options);
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        return res;
+      } catch (err) {
+        if (retries <= 1) throw err;
+        await new Promise(r => setTimeout(r, delay));
+        return fetchWithRetry(url, options, retries - 1, delay * 2);
+      }
+    }
+  </script>
+</body>
+</html>
