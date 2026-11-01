@@ -394,8 +394,10 @@ function doGet(e) {
       setInterval(update, 1000);
     }
 
-    // --- High-Performance Smooth Speech Recognition Engine ---
+    // --- Dedicated Mobile & PC Speech Recognition Engine ---
     let isIntentionalStop = false;
+    const isMobileDevice = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    let committedSentences = []; // 확정된 문장들을 중복 없이 순차 보관하는 전용 리스트
 
     function initSpeechRecognition() {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -406,9 +408,9 @@ function doGet(e) {
       }
 
       recognition = new SpeechRecognition();
-      // continuous를 true로 유지하되, 각 이벤트 결과 배열을 클린 조립하여
-      // 모바일에서도 끊김 없이 PC처럼 즉각적이고 매끄럽게 인식되도록 최적화
-      recognition.continuous = true;
+      // 모바일에서는 continuous=true가 중복 텍스트를 강제로 다시 밀어넣는 주원인이므로 false로 운영
+      // PC에서는 continuous=true로 최상의 반응 속도 유지
+      recognition.continuous = !isMobileDevice;
       recognition.interimResults = true;
       recognition.lang = 'ko-KR';
 
@@ -418,22 +420,35 @@ function doGet(e) {
       };
 
       recognition.onresult = function(event) {
-        let assembledFinal = "";
-        let assembledInterim = "";
-
-        // 전체 results 버퍼를 매 프레임 순회하여 중복 없이 실시간 반영
-        for (let i = 0; i < event.results.length; ++i) {
-          const item = event.results[i];
-          const text = item[0].transcript;
-          if (item.isFinal) {
-            assembledFinal += text + " ";
-          } else {
-            assembledInterim += text;
+        let currentInterim = "";
+        
+        if (isMobileDevice) {
+          // [모바일 모드] 단일 세션 내에서만 추출하여 committedSentences에 안전 병합
+          for (let i = 0; i < event.results.length; ++i) {
+            const item = event.results[i];
+            const text = item[0].transcript.trim();
+            if (item.isFinal) {
+              appendCommittedText(text);
+            } else {
+              currentInterim = text;
+            }
           }
+        } else {
+          // [PC 모드] event.results 전체를 깨끗하게 스캔
+          let assembledFinal = "";
+          for (let i = 0; i < event.results.length; ++i) {
+            const item = event.results[i];
+            const text = item[0].transcript;
+            if (item.isFinal) {
+              assembledFinal += text + " ";
+            } else {
+              currentInterim += text;
+            }
+          }
+          finalTranscript = assembledFinal.trim();
         }
 
-        finalTranscript = assembledFinal.trim();
-        interimTranscript = assembledInterim;
+        interimTranscript = currentInterim;
         renderTranscript();
       };
 
@@ -442,15 +457,21 @@ function doGet(e) {
           showToast("마이크 접근 권한이 거부되었습니다. 브라우저 설정에서 허용해 주세요.");
           stopRecording();
         } else if (event.error === 'no-speech') {
-          // 일상적 무음 상태 - 계속 유지
+          // 무음 감지 시 무시
         } else {
-          console.warn("STT Notice:", event.error);
+          console.warn("STT Event:", event.error);
         }
       };
 
       recognition.onend = function() {
-        // 사용자가 명시적으로 중지하지 않았는데 모바일 브라우저에 의해 끊긴 경우 즉시 무지연 재연결
+        // 모바일에서는 말이 끝나거나 잠시 쉴 때 자연스럽게 onend가 발생함
+        // 사용자가 명시적으로 중지 버튼을 누르지 않았다면 즉시 새로운 단문 세션을 열어 이어받음
         if (isRecording && !isIntentionalStop) {
+          if (interimTranscript.trim()) {
+            appendCommittedText(interimTranscript.trim());
+            interimTranscript = "";
+            renderTranscript();
+          }
           try {
             recognition.start();
           } catch (e) {
@@ -458,13 +479,37 @@ function doGet(e) {
               if (isRecording && !isIntentionalStop) {
                 try { recognition.start(); } catch(err) {}
               }
-            }, 100);
+            }, 50);
           }
         } else {
           isRecording = false;
           updateMicUI(false);
         }
       };
+    }
+
+    // 모바일 텍스트 중복 원천 차단 병합 함수
+    function appendCommittedText(newText) {
+      if (!newText) return;
+      newText = newText.trim();
+      
+      if (committedSentences.length > 0) {
+        const lastSentence = committedSentences[committedSentences.length - 1];
+        
+        // 1. 직전문장과 완전 동일하면 무시
+        if (lastSentence === newText) return;
+        
+        // 2. 직전문장에 현재 문장이 이미 포함되어 있거나, 현재 문장이 직전문장을 포함하고 있으면 교체
+        if (lastSentence.endsWith(newText)) return;
+        if (newText.startsWith(lastSentence)) {
+          committedSentences[committedSentences.length - 1] = newText;
+          finalTranscript = committedSentences.join(" ");
+          return;
+        }
+      }
+      
+      committedSentences.push(newText);
+      finalTranscript = committedSentences.join(" ");
     }
 
     function toggleSpeechRecording() {
@@ -479,6 +524,7 @@ function doGet(e) {
             Tone.start();
           }
           isIntentionalStop = false;
+          committedSentences = [];
           finalTranscript = "";
           interimTranscript = "";
           renderTranscript();
@@ -500,7 +546,7 @@ function doGet(e) {
         try { recognition.stop(); } catch(e) {}
       }
       if (interimTranscript.trim()) {
-        finalTranscript = (finalTranscript + " " + interimTranscript.trim()).trim();
+        appendCommittedText(interimTranscript.trim());
         interimTranscript = "";
       }
       renderTranscript();
@@ -561,6 +607,7 @@ function doGet(e) {
 
     function clearTranscript() {
       if (isRecording) stopRecording();
+      committedSentences = [];
       finalTranscript = "";
       interimTranscript = "";
       renderTranscript();
