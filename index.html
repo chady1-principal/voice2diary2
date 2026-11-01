@@ -959,12 +959,21 @@ function doGet(e) {
       }
     }
 
-    // --- Settings Storage & UI ---
+    // --- Settings Storage & UI (Persistent LocalStorage) ---
+    const STORAGE_KEY_CONFIG = "voice_diary_config_v1";
+    const STORAGE_KEY_ENTRIES = "voice_diary_entries_v1";
+
     function loadSettings() {
       try {
-        const stored = window.__cachedConfig;
-        if (stored) config = Object.assign(config, stored);
-      } catch(e) {}
+        const saved = localStorage.getItem(STORAGE_KEY_CONFIG);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          config = Object.assign(config, parsed);
+        }
+      } catch (e) {
+        console.warn("Storage read error, using cache fallback", e);
+        if (window.__cachedConfig) config = Object.assign(config, window.__cachedConfig);
+      }
 
       document.getElementById('sheetWebhookInput').value = config.sheetUrl || "";
       document.getElementById('aiPromptStyle').value = config.aiStyle || "";
@@ -976,12 +985,18 @@ function doGet(e) {
       config.sheetUrl = document.getElementById('sheetWebhookInput').value.trim();
       config.aiStyle = document.getElementById('aiPromptStyle').value.trim();
       config.hourlyReminder = document.getElementById('hourlySwitch').checked;
+      
+      try {
+        localStorage.setItem(STORAGE_KEY_CONFIG, JSON.stringify(config));
+      } catch (e) {
+        console.warn("Storage write error", e);
+      }
       window.__cachedConfig = config;
 
       updateStatusBadge();
       if (!silent) {
         closeSettingsModal();
-        showToast("설정이 저장되었습니다.");
+        showToast("설정이 안전하게 저장되었습니다.");
       }
     }
 
@@ -1105,13 +1120,26 @@ function doGet(e) {
     }
 
     function loadEntries() {
-      if (window.__cachedEntries) {
-        entries = window.__cachedEntries;
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY_ENTRIES);
+        if (saved) {
+          entries = JSON.parse(saved);
+        } else if (window.__cachedEntries) {
+          entries = window.__cachedEntries;
+        }
+      } catch (e) {
+        console.warn("Storage load entries error", e);
+        if (window.__cachedEntries) entries = window.__cachedEntries;
       }
       renderDiaryTimeline();
     }
 
     function saveEntries() {
+      try {
+        localStorage.setItem(STORAGE_KEY_ENTRIES, JSON.stringify(entries));
+      } catch (e) {
+        console.warn("Storage save entries error", e);
+      }
       window.__cachedEntries = entries;
     }
 
